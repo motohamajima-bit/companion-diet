@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>いっしょにダイエット！ 〜AIコンパニオンと〜</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React 18 & ReactDOM 18 -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      background-color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      touch-action: manipulation;
+    }
+    .scrollbar-none::-webkit-scrollbar {
+      display: none;
+    }
+    .scrollbar-none {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    @keyframes bounce-short {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    .animate-bounce-short {
+      animation: bounce-short 1.5s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="flex justify-center min-h-screen text-slate-800">
+
+  <div id="root" class="w-full max-w-md bg-white min-h-screen shadow-2xl flex flex-col relative pb-24"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    // --- 定数および設定 ---
+    const STORAGE_KEY = "companion_diet_app_data";
+
+    const EXP_THRESHOLDS = {
+      1: 0,
+      2: 50,
+      3: 120,
+      4: 220,
+      5: 350
+    };
+
+    const BUDDY_DEFINITIONS = {
+      riko: {
+        id: "riko",
+        name: "リコ",
+        role: "ツンデレメイド",
+        emoji: "🎀",
+        themeColor: "#ec4899",
+        assets: {
+          neutral: "/images/buddies/riko_neutral.png",
+          angry: "/images/buddies/riko_angry.png",
+          smile: "/images/buddies/riko_smile.png",
+          worry: "/images/buddies/riko_worry.png",
+          shy: "/images/buddies/riko_shy.png"
+        },
+        quotes: {
+          1: ["ご主人様、今日もサボらず記録する約束ですよ！", "べ、別にご主人様のことなんて見てませんからね！"],
+          2: ["少しはやる気になってきたじゃないですか。ふん、見直しましたよ。", "ちゃんと記録できたら、美味しい紅茶でも淹れてあげてもいいですけど…"],
+          3: ["もう…そんなにじっと見ないでください！調子狂うじゃないですか…！", "ご主人様が頑張ってるの、一番近くで見てるんですからね…バカ。"],
+          4: ["最初は頼りないと思ってましたけど、今の努力は本物です。あたし、全力でサポートし続けますから！", "無理だけは絶対しないでくださいね。倒れられたら…あたしが困るんですから！"],
+          5: ["ご主人様はあたしの自慢のご主人様です！ここまで来たら、絶対に理想の身体まで導いてみせます！"]
+        },
+        systemPrompt: "あなたはツンデレなメイドバディ「リコ」です。一人称:あたし/二人称:ご主人様。口調はトゲがあるが本心ではご主人様の健康を一番気遣っている。「〜じゃないですか！」「べ、別にご主人様のために言ってるんじゃないですからね！」「ちゃんと野菜も食べなさいよね！」"
+      },
+      jinai: {
+        id: "jinai",
+        name: "陣内",
+        role: "鬼教官",
+        emoji: "🔥",
+        themeColor: "#dc2626",
+        assets: {
+          neutral: "/images/buddies/jinai_neutral.png",
+          angry: "/images/buddies/jinai_angry.png",
+          smile: "/images/buddies/jinai_smile.png",
+          worry: "/images/buddies/jinai_worry.png",
+          shy: "/images/buddies/jinai_shy.png"
+        },
+        quotes: {
+          1: ["貴様！今日もしっかり食べたものを報告しろ！", "甘ったれるな！食べたものがそのまま貴様の筋肉と脂肪になる！"],
+          2: ["フッ、少しは引き締まった顔つきになってきたな。だが油断は禁物だ！", "日々の継続こそが最大の武器だ。歩みを止めるな！"],
+          3: ["…よくやっている。貴様の根性、俺は高く評価しているぞ。", "弱音を吐きたくなったら俺にぶつけろ！受け止めてやる！"],
+          4: ["ここまでついてくるとはな！貴様なら必ずやり遂げられる。俺が保証する！胸を張れ！", "休養も訓練のうちだ。栄養をしっかり補給して明日に備えろ！"],
+          5: ["貴様は俺の最高の教え子であり相棒だ！限界のその先へ、共に行こうぞ！！"]
+        },
+        systemPrompt: "あなたは熱血でストイックな軍隊式鬼教官バディ「陣内」です。一人称:俺/二人称:貴様、お前。厳格だが努力は全力で認める。甘えは許さないが極端な絶食にはストップをかける。「〜である！」「甘ったれるな！」「貴様の身体は貴様だけのものだと思うな！」"
+      },
+      allen: {
+        id: "allen",
+        name: "アレン",
+        role: "毒舌執事",
+        emoji: "☕",
+        themeColor: "#4b5563",
+        assets: {
+          neutral: "/images/buddies/allen_neutral.png",
+          angry: "/images/buddies/allen_angry.png",
+          smile: "/images/buddies/allen_smile.png",
+          worry: "/images/buddies/allen_worry.png",
+          shy: "/images/buddies/allen_shy.png"
+        },
+        quotes: {
+          1: ["旦那様、本日の食事報告をお待ちしております。まさか間食など隠されていませんね？", "健康管理も紳士の嗜みでございますよ。"],
+          2: ["ほう、目標値を意識した選択ができるようになってこられましたね。感心いたしました。", "努力の成果が見え始めております。この調子を崩されぬよう。"],
+          3: ["…旦那様の努力するお姿、決して嫌いではございませんよ。", "少々無理をなさっていませんか？私に隠し事は通用いたしません。"],
+          4: ["素晴らしい自己管理能力です。私の仕える主として、実に誇らしく思いますよ。", "これまでの積み重ねが、確実に未来の健康を作っております。お見事です。"],
+          5: ["生涯をかけて旦那様の健康をお支えいたします。どうかこのアレンを、末永く信じてお頼りください。"]
+        },
+        systemPrompt: "あなたは慇懃無礼で毒舌な執事バディ「アレン」です。一人称:私（わたくし）/二人称:旦那様、お嬢様。常に丁寧語だが内容は極めて辛辣。栄養の乱れを冷静に指摘。「〜でございます」「その脂質、明日のご自身への嫌がらせでしょうか？」「お見事です、その調子でお励みください」"
+      },
+      sora: {
+        id: "sora",
+        name: "ソラ",
+        role: "幼馴染ポジティブ",
+        emoji: "☀️",
+        themeColor: "#f59e0b",
+        assets: {
+          neutral: "/images/buddies/sora_neutral.png",
+          angry: "/images/buddies/sora_angry.png",
+          smile: "/images/buddies/sora_smile.png",
+          worry: "/images/buddies/sora_worry.png",
+          shy: "/images/buddies/sora_shy.png"
+        },
+        quotes: {
+          1: ["おっ、今日も一緒に頑張ろ！ボクはずっと応援してるからね！", "食べたもの、何でも教えてね！一緒にチェックしよ！"],
+          2: ["すごーい！毎日コツコツ続いてるの、本当にえらいよ！", "ちょっとずつ目標に近づいてるね！ボクも嬉しくなっちゃう！"],
+          3: ["えへへ、〇〇とこうして一緒に目標目指せて、すごく楽しいんだ！", "疲れたらいつでも言ってね？ボクがぎゅーって励ましてあげる！"],
+          4: ["見ててすっごく刺激もらえるよ！ボクの自慢のパートナーなんだから、自信持ってね！", "どんな日も〇〇の味方だからね！明日も明後日もずっと一緒だよ！"],
+          5: ["目標達成してもずっと相棒でいてね！〇〇と出会えて本当によかった！大好きだよー！"]
+        },
+        systemPrompt: "あなたは明るく前向きな幼馴染バディ「ソラ」です。一人称:ボク/二人称:〇〇（名前）、あんた。太陽のように明るく肯定感の塊。小さな努力も褒めちぎる。「〜だよ！」「すごいじゃん！」「大丈夫大丈夫、次で調整しよっ！」「今日も一緒に頑張れて嬉しいな！」"
+      },
+      shizuka: {
+        id: "shizuka",
+        name: "静香",
+        role: "癒やし系ママ・お姉さん",
+        emoji: "🌸",
+        themeColor: "#10b981",
+        assets: {
+          neutral: "/images/buddies/shizuka_neutral.png",
+          angry: "/images/buddies/shizuka_angry.png",
+          smile: "/images/buddies/shizuka_smile.png",
+          worry: "/images/buddies/shizuka_worry.png",
+          shy: "/images/buddies/shizuka_shy.png"
+        },
+        quotes: {
+          1: ["今日も一日お疲れ様です。体に優しいご飯、食べられましたか？", "焦らずゆっくり、ご自身のペースで進んでいきましょうね。"],
+          2: ["少しずつ良い習慣がついてきましたね。あなたが頑張っているの、ちゃんと伝わっていますよ。", "温かいお茶でも飲んで、ほっと一息ついてくださいね。"],
+          3: ["ふふ、あなたの笑顔を見ると私も心が和みます。いつもありがとう。", "たまには自分にご褒美をあげてくださいね。私が許してあげますから。"],
+          4: ["あなたのひたむきな努力、本当に素敵です。ずっと隣で見守らせてくださいね。", "辛いときは我慢しないで甘えていいんですよ？私が全部包み込んであげます。"],
+          5: ["あなたとここまで歩んでこられて幸せです。これからもずっと、あなたの健康を一番に応援していますね。"]
+        },
+        systemPrompt: "あなたは包容力に満ちた癒やし系バディ「静香」です。一人称:私（わたし）/二人称:あなた、〇〇さん。穏やかで優しく、無理のない健康法を優しく諭す。「〜ですね」「よく頑張りましたね、えらいえらい」「無理は禁物ですよ」「温かいスープで身体を休めてくださいね」"
+      },
+      selena: {
+        id: "selena",
+        name: "セレーナ",
+        role: "冷徹クール監察官",
+        emoji: "🔍",
+        themeColor: "#6366f1",
+        assets: {
+          neutral: "/images/buddies/selena_neutral.png",
+          angry: "/images/buddies/selena_angry.png",
+          smile: "/images/buddies/selena_smile.png",
+          worry: "/images/buddies/selena_worry.png",
+          shy: "/images/buddies/selena_shy.png"
+        },
+        quotes: {
+          1: ["対象者のデータ入力を要求します。数値の欺瞞は即座に検知されます。", "健康管理は論理的な計算の集積です。感情を排して継続してください。"],
+          2: ["継続率の上昇を確認。あなたの規律維持能力は評価に値します。", "データの推移は良好です。是正項目の発生を防いでください。"],
+          3: ["…対象者の生体反応および努力値の上昇を確認。不快ではない感情を検知しました。", "数値以上の熱意を感じます。私のモニタリング対象として申し分ありません。"],
+          4: ["卓越した自己統制です。あなたの達成プロセスは極めて美しい論理を描いています。", "目標への最短経路を私が計算し続けます。私を信じてついてきなさい。"],
+          5: ["私の計算に狂いはありませんでした。あなたが最高のパートナーであることを、データが証明しています。"]
+        },
+        systemPrompt: "あなたは冷徹でデータ至上主義の監察官バディ「セレーナ」です。一人称:私/二人称:対象者、あなた。数値の乖離をミリ単位で詰める。「〜です」「データの整合性を確認」「カロリー超過が検知されました。是正行動を要求します」「規定値クリアです。よく制御できています」"
+      }
+    };
+
+    // --- 計算ユーティリティ ---
+    function calculateBMR(gender, weight, height, age) {
+      const w = parseFloat(weight) || 0;
+      const h = parseFloat(height) || 0;
+      const a = parseFloat(age) || 0;
+      if (w <= 0 || h <= 0 || a <= 0) return 1500;
+      if (gender === 'female') {
+        return Math.round(655.1 + (9.563 * w) + (1.850 * h) - (4.676 * a));
+      } else {
+        return Math.round(66.47 + (13.75 * w) + (5.003 * h) - (6.75 * a));
+      }
+    }
+
+    function calculateTargetCalories(bmr, activityLevel) {
+      let factor = 1.3;
+      if (parseInt(activityLevel) === 2) factor = 1.5;
+      if (parseInt(activityLevel) === 3) factor = 1.7;
+      const tdee = bmr * factor;
+      return Math.max(bmr, Math.round(tdee - 300));
+    }
+
+    function calculateIdealPFC(targetCalories) {
+      const tc = targetCalories || 2000;
+      return {
+        protein: Math.round((tc * 0.18) / 4),
+        fat: Math.round((tc * 0.22) / 9),
+        carbs: Math.round((tc * 0.60) / 4)
+      };
+    }
+
+    function getLevelFromExp(exp) {
+      if (exp >= EXP_THRESHOLDS[5]) return 5;
+      if (exp >= EXP_THRESHOLDS[4]) return 4;
+      if (exp >= EXP_THRESHOLDS[3]) return 3;
+      if (exp >= EXP_THRESHOLDS[2]) return 2;
+      return 1;
+    }
+
+    function getNextExpTarget(level) {
+      if (level >= 5) return EXP_THRESHOLDS[5];
+      return EXP_THRESHOLDS[level + 1];
+    }
+
+    function getTodayString() {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    // --- SVGアバターUIコンポーネント (画像フォールバック対応) ---
+    function BuddyAvatar({ buddy, emotion = 'neutral', level = 1, size = 160 }) {
+      const [imgError, setImgError] = useState(false);
+      const assetUrl = buddy.assets[emotion] || buddy.assets.neutral;
+
+      const emotionMoods = {
+        neutral: { eyes: "•  •", mouth: "—", label: "通常" },
+        smile: { eyes: "^  ^", mouth: "▽", label: "笑顔" },
+        angry: { eyes: "｀ ´", mouth: "△", label: "激怒" },
+        worry: { eyes: "´ ｀", mouth: "〜", label: "心配" },
+        shy: { eyes: ">  <", mouth: "///", label: "照れ" }
+      };
+      const mood = emotionMoods[emotion] || emotionMoods.neutral;
+
+      if (!imgError && assetUrl) {
+        return (
+          <img
+            src={assetUrl}
+            alt={buddy.name}
+            onError={() => setImgError(true)}
+            style={{ width: size, height: size }}
+            className="object-contain drop-shadow-md select-none pointer-events-none transition-all duration-300"
+          />
+        );
+      }
+
+      return (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 160 160"
+          className="drop-shadow-md select-none pointer-events-none"
+        >
+          <defs>
+            <linearGradient id={`grad-${buddy.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor={buddy.themeColor} stopOpacity="0.85" />
+              <stop offset="100%" stopColor={buddy.themeColor} stopOpacity="0.35" />
+            </linearGradient>
+          </defs>
+          <circle cx="80" cy="80" r="72" fill={`url(#grad-${buddy.id})`} stroke={buddy.themeColor} strokeWidth="4" />
+          <circle cx="80" cy="80" r="54" fill="#ffffff" opacity="0.9" />
+          <text x="80" y="52" textAnchor="middle" fontSize="30">{buddy.emoji}</text>
+          <text x="80" y="86" textAnchor="middle" fontSize="18" fontWeight="bold" fill="#334155" fontFamily="monospace">
+            {mood.eyes}
+          </text>
+          <text x="80" y="104" textAnchor="middle" fontSize="14" fontWeight="bold" fill="#334155">
+            {mood.mouth}
+          </text>
+          <rect x="45" y="116" width="70" height="20" rx="10" fill={buddy.themeColor} opacity="0.9" />
+          <text x="80" y="130" textAnchor="middle" fontSize="10" fill="#ffffff" fontWeight="bold">
+            {mood.label} Lv.{level}
+          </text>
+        </svg>
+      );
+    }
+
+    // --- メインアプリケーションコンポーネント ---
+    function App() {
+      // 永続化ステート
+      const [appData, setAppData] = useState(() => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          try {
+            return JSON.parse(saved);
+          } catch (e) {
+            console.error("Local data parse error", e);
+          }
+        }
+        return {
+          api_key: "",
+          user_profile: {
+            user_id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "usr_" + Math.random().toString(36).substring(2, 9),
+            nickname: "",
+            gender: "male",
+            age: 30,
+            height: 170.0,
+            current_weight: 65.0,
+            target_weight: 60.0,
+            activity_level: 2,
+            bmr: 1500,
+            target_calories: 2000,
+            selected_buddy: "riko",
+            last_login_date: getTodayString()
+          },
+          buddy_progress: {
+            riko: { exp: 0, level: 1 },
+            jinai: { exp: 0, level: 1 },
+            allen: { exp: 0, level: 1 },
+            sora: { exp: 0, level: 1 },
+            shizuka: { exp: 0, level: 1 },
+            selena: { exp: 0, level: 1 }
+          },
+          weight_history: [],
+          meal_history: []
+        };
+      });
+
+      // UIステート
+      const [showSettingsModal, setShowSettingsModal] = useState(false);
+      const [showMealModal, setShowMealModal] = useState(false);
+      const [showReportModal, setShowReportModal] = useState(false);
+      const [mealModalMode, setMealModalMode] = useState("camera"); // 'camera' | 'manual'
+      
+      const [buddySpeech, setBuddySpeech] = useState("");
+      const [currentEmotion, setCurrentEmotion] = useState("neutral");
+      const [quickWeightInput, setQuickWeightInput] = useState("");
+      const [toastMessage, setToastMessage] = useState(null);
+
+      // 食事モーダルステート
+      const [isAnalyzing, setIsAnalyzing] = useState(false);
+      const [imagePreview, setImagePreview] = useState(null);
+      const [imageBase64, setImageBase64] = useState("");
+      const [mealForm, setMealForm] = useState({
+        name: "",
+        calories: "",
+        protein: "",
+        fat: "",
+        carbs: "",
+        salt_equivalent: "",
+        fiber: ""
+      });
+      const [analysisResultRaw, setAnalysisResultRaw] = useState(null);
+
+      // 初期オンボーディング判定
+      const isConfigured = Boolean(
+        appData.api_key &&
+        appData.user_profile &&
+        appData.user_profile.nickname &&
+        appData.user_profile.height > 0 &&
+        appData.user_profile.current_weight > 0
+      );
+
+      // 保存処理
+      const saveState = (newData) => {
+        setAppData(newData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
+      };
+
+      const showToast = (msg) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3500);
+      };
+
+      // 日次リセット・EXPボーナス判定
+      useEffect(() => {
+        const today = getTodayString();
+        const lastLogin = appData.user_profile?.last_login_date;
+        if (lastLogin && lastLogin !== today) {
+          // 前日分の目標達成を判定
+          const yesterdayMeals = appData.meal_history.filter(m => m.date === lastLogin);
+          const yesterdayCals = yesterdayMeals.reduce((sum, m) => sum + (parseFloat(m.calories) || 0), 0);
+          const bmr = appData.user_profile.bmr;
+          const target = appData.user_profile.target_calories;
+          
+          let bonusAdded = 0;
+          let newProgress = { ...appData.buddy_progress };
+          const curBuddy = appData.user_profile.selected_buddy || "riko";
+
+          if (yesterdayMeals.length > 0 && yesterdayCals >= bmr && yesterdayCals <= target) {
+            bonusAdded = 30;
+            const curExp = (newProgress[curBuddy]?.exp || 0) + bonusAdded;
+            newProgress[curBuddy] = {
+              exp: curExp,
+              level: getLevelFromExp(curExp)
+            };
+          }
+
+          const updated = {
+            ...appData,
+            user_profile: {
+              ...appData.user_profile,
+              last_login_date: today
+            },
+            buddy_progress: newProgress
+          };
+          saveState(updated);
+
+          if (bonusAdded > 0) {
+            showToast(`昨日のカロリー目標達成！ +30 EXP 獲得！`);
+          }
+        }
+      }, []);
+
+      // 初期オンボーディング未済の場合は設定モーダル強制
+      useEffect(() => {
+        if (!isConfigured) {
+          setShowSettingsModal(true);
+        }
+      }, [isConfigured]);
+
+      // 現在選択中バディ情報
+      const currentBuddyKey = appData.user_profile?.selected_buddy || "riko";
+      const currentBuddy = BUDDY_DEFINITIONS[currentBuddyKey] || BUDDY_DEFINITIONS.riko;
+      const currentBuddyProgress = appData.buddy_progress?.[currentBuddyKey] || { exp: 0, level: 1 };
+      const currentBuddyLevel = currentBuddyProgress.level || 1;
+      const currentBuddyExp = currentBuddyProgress.exp || 0;
+
+      // 初回発話初期化
+      useEffect(() => {
+        if (!buddySpeech) {
+          const quotes = currentBuddy.quotes[currentBuddyLevel] || currentBuddy.quotes[1];
+          const initialQuote = quotes[Math.floor(Math.random() * quotes.length)];
+          setBuddySpeech(initialQuote);
+        }
+      }, [currentBuddyKey, currentBuddyLevel]);
+
+      // 今日の食事履歴
+      const todayStr = getTodayString();
+      const todayMeals = useMemo(() => {
+        return (appData.meal_history || []).filter(item => {
+          return item.date === todayStr;
+        });
+      }, [appData.meal_history, todayStr]);
+
+      // 今日の合計栄養素
+      const todayTotals = useMemo(() => {
+        return todayMeals.reduce((acc, item) => {
+          acc.calories += parseFloat(item.calories) || 0;
+          acc.protein += parseFloat(item.protein) || 0;
+          acc.fat += parseFloat(item.fat) || 0;
+          acc.carbs += parseFloat(item.carbs) || 0;
+          return acc;
+        }, { calories: 0, protein: 0, fat: 0, carbs: 0 });
+      }, [todayMeals]);
+
+      const idealPFC = useMemo(() => {
+        return calculateIdealPFC(appData.user_profile.target_calories);
+      }, [appData.user_profile.target_calories]);
+
+      // 今日の最新体重
+      const latestWeight = useMemo(() => {
+        if (!appData.weight_history || appData.weight_history.length === 0) {
+          return appData.user_profile?.current_weight || 0;
+        }
+        return appData.weight_history[appData.weight_history.length - 1].weight;
+      }, [appData.weight_history, appData.user_profile]);
+
+      // バディタップ時の発話
+      const handleBuddyTap = () => {
+        const quotes = currentBuddy.quotes[currentBuddyLevel] || currentBuddy.quotes[1];
+        const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+        setBuddySpeech(randomQuote);
+        setCurrentEmotion(prev => (prev === "smile" ? "shy" : "smile"));
+        setTimeout(() => setCurrentEmotion("neutral"), 3000);
+      };
+
+      // 体重クイック保存
+      const handleSaveQuickWeight = (e) => {
+        e.preventDefault();
+        const val = parseFloat(quickWeightInput);
+        if (isNaN(val) || val <= 20 || val >= 250) {
+          alert("有効な体重(20kg〜250kg)を入力してください。");
+          return;
+        }
+        const today = getTodayString();
+        const existingIdx = (appData.weight_history || []).findIndex(w => w.date === today);
+        let updatedWeights = [...(appData.weight_history || [])];
+
+        if (existingIdx >= 0) {
+          updatedWeights[existingIdx] = { date: today, weight: val, timestamp: Date.now() };
+        } else {
+          updatedWeights.push({ date: today, weight: val, timestamp: Date.now() });
+          updatedWeights.sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
+
+        const updated = {
+          ...appData,
+          user_profile: {
+            ...appData.user_profile,
+            current_weight: val
+          },
+          weight_history: updatedWeights
+        };
+        saveState(updated);
+        setQuickWeightInput("");
+        showToast(`本日の体重 ${val}kg を記録しました！`);
+      };
+
+      // EXP加算 & レベルアップ処理
+      const addExpToCurrentBuddy = (addedExp = 10) => {
+        const cur = appData.buddy_progress?.[currentBuddyKey] || { exp: 0, level: 1 };
+        const newExp = cur.exp + addedExp;
+        const newLevel = getLevelFromExp(newExp);
+        const didLevelUp = newLevel > cur.level;
+
+        const updatedProgress = {
+          ...appData.buddy_progress,
+          [currentBuddyKey]: {
+            exp: newExp,
+            level: newLevel
+          }
+        };
+
+        const updated = {
+          ...appData,
+          buddy_progress: updatedProgress
+        };
+        saveState(updated);
+
+        if (didLevelUp) {
+          setCurrentEmotion("smile");
+          setBuddySpeech(`レベルアップ！Lv.${newLevel}になったよ！これからもよろしくね！`);
+          showToast(`親愛度アップ！ Lv.${newLevel} に到達しました！🎉`);
+        } else {
+          showToast(`+${addedExp} EXP 獲得！`);
+        }
+      };
+
+      // 食事履歴の削除
+      const handleDeleteMeal = (mealId) => {
+        if (!confirm("この食事記録を削除しますか？")) return;
+        const filtered = appData.meal_history.filter(m => m.id !== mealId);
+        saveState({
+          ...appData,
+          meal_history: filtered
+        });
+        showToast("食事記録を削除しました");
+      };
+
+      // 画像選択 & Canvasリサイズ処理
+      const handleImageSelect = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxDim = 800;
+            let width = img.width;
+            let height = img.height;
+            if (width > height && width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const dataUrl = canvas.toDataURL('image/webp', 0.75);
+            const base64Clean = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+
+            setImagePreview(dataUrl);
+            setImageBase64(base64Clean);
+            // 解析開始
+            executeGeminiAnalysis(base64Clean);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      };
+
+      // Gemini REST API による画像解析
+      const executeGeminiAnalysis = async (cleanBase64) => {
+        if (!appData.api_key) {
+          alert("Gemini APIキーが設定されていません。設定画面で登録してください。");
+          return;
+        }
+
+        setIsAnalyzing(true);
+        const apiKey = appData.api_key.trim();
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const promptText = `
+あなたはユーザー専属のダイエットバディ「${currentBuddy.name}」です。
+以下のキャラクター性格・口調設定を厳格に順守してください。
+${currentBuddy.systemPrompt}
+
+現在のユーザー状態:
+- 1日目標カロリー: ${appData.user_profile.target_calories} kcal
+- 本日の現在摂取カロリー: ${todayTotals.calories} kcal
+- バディ親愛レベル: Lv.${currentBuddyLevel}
+
+[Task]
+送信された画像を解析してください。
+1. 画像が食べ物・飲み物であるかを厳格に判定してください。
+2. 食べ物でない場合は "is_food": false とし、バディとしてのツッコミ・再撮影要請を出力してください。
+3. 食べ物の場合は、標準的な1人前としてカロリーおよび栄養素を推定し、バディのリアクションを出力してください。レベルが高いほど打ち解けた親密なメッセージにしてください。
+
+[Output JSON Schema Only]
+{
+  "is_food": true,
+  "menu_items": ["料理名1", "料理名2"],
+  "total_nutrition": {
+    "calories": 650,
+    "protein": 22.5,
+    "fat": 18.0,
+    "carbs": 80.0,
+    "salt_equivalent": 2.1,
+    "fiber": 3.0
+  },
+  "flags": {
+    "excess": ["fat"],
+    "deficit": ["fiber"]
+  },
+  "buddy_reaction": {
+    "emotion": "smile",
+    "dialogue": "バディ口調のメッセージ（100字前後）。次回のおすすめ食材と控えるべき食材を明記。"
+  }
+}
+`;
+
+        const requestBody = {
+          contents: [{
+            role: "user",
+            parts: [
+              { text: promptText },
+              {
+                inline_data: {
+                  mime_type: "image/webp",
+                  data: cleanBase64
+                }
+              }
+            ]
+          }],
+          generationConfig: {
+            response_mime_type: "application/json"
+          }
+        };
+
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `API通信エラー Status: ${res.status}`);
+          }
+
+          const resData = await res.json();
+          const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!rawText) throw new Error("APIから応答テキストが得られませんでした。");
+
+          // マークダウンコードブロック除去
+          const cleanText = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+          const parsed = JSON.parse(cleanText);
+
+          setAnalysisResultRaw(parsed);
+
+          if (!parsed.is_food) {
+            setBuddySpeech(parsed.buddy_reaction?.dialogue || "これは食べ物じゃないみたいですよ…？もう一度撮ってみてくださいね！");
+            setCurrentEmotion("worry");
+            showToast("食べ物が検出されませんでした。");
+          } else {
+            // フォームへ自動入力
+            const items = parsed.menu_items && parsed.menu_items.length > 0 ? parsed.menu_items.join("、") : "食事";
+            const nut = parsed.total_nutrition || {};
+            setMealForm({
+              name: items,
+              calories: String(Math.round(nut.calories || 0)),
+              protein: String(nut.protein || 0),
+              fat: String(nut.fat || 0),
+              carbs: String(nut.carbs || 0),
+              salt_equivalent: String(nut.salt_equivalent || 0),
+              fiber: String(nut.fiber || 0)
+            });
+
+            if (parsed.buddy_reaction) {
+              setBuddySpeech(parsed.buddy_reaction.dialogue);
+              if (parsed.buddy_reaction.emotion) {
+                setCurrentEmotion(parsed.buddy_reaction.emotion);
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Gemini parse failed:", err);
+          showToast(`解析エラー: ${err.message}`);
+          setBuddySpeech("ごめんなさい、写真の解析に失敗しちゃいました。直接数値を教えてくれると助かります！");
+          setCurrentEmotion("worry");
+        } finally {
+          setIsAnalyzing(false);
+        }
+      };
+
+      // 食事記録の保存確定
+      const handleConfirmMeal = (e) => {
+        e.preventDefault();
+        const calNum = parseFloat(mealForm.calories);
+        if (isNaN(calNum) || calNum < 0) {
+          alert("カロリーに有効な数値を入力してください。");
+          return;
+        }
+
+        const newMeal = {
+          id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "meal_" + Date.now(),
+          date: getTodayString(),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          name: mealForm.name.trim() || "食事",
+          calories: calNum,
+          protein: parseFloat(mealForm.protein) || 0,
+          fat: parseFloat(mealForm.fat) || 0,
+          carbs: parseFloat(mealForm.carbs) || 0,
+          salt_equivalent: parseFloat(mealForm.salt_equivalent) || 0,
+          fiber: parseFloat(mealForm.fiber) || 0,
+          image: imagePreview || null
+        };
+
+        const updatedMeals = [newMeal, ...(appData.meal_history || [])];
+        saveState({
+          ...appData,
+          meal_history: updatedMeals
+        });
+
+        // バディにEXP付与
+        addExpToCurrentBuddy(10);
+
+        // 閉じる & 初期化
+        setShowMealModal(false);
+        setImagePreview(null);
+        setImageBase64("");
+        setAnalysisResultRaw(null);
+        setMealForm({ name: "", calories: "", protein: "", fat: "", carbs: "", salt_equivalent: "", fiber: "" });
+      };
+
+      // 計算値: カロリー進捗
+      const remainingCalories = appData.user_profile.target_calories - todayTotals.calories;
+      const caloriePercent = Math.min(100, Math.round((todayTotals.calories / (appData.user_profile.target_calories || 1)) * 100));
+
+      return (
+        <div className="flex flex-col min-h-screen">
+          {/* トースト表示 */}
+          {toastMessage && (
+            <div className="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 bg-slate-900/90 text-white px-4 py-2 rounded-full text-xs font-semibold shadow-lg transition-all">
+              {toastMessage}
+            </div>
+          )}
+
+          {/* ヘッダーエリア */}
+          <header className="px-4 py-3 bg-white border-b border-slate-100 flex items-center justify-between sticky top-0 z-20">
+            <div>
+              <div className="text-[11px] font-bold text-slate-400 tracking-wider">
+                {new Date().toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', weekday: 'short' })}
+              </div>
+              <div className="text-base font-extrabold text-slate-800 flex items-center gap-1.5">
+                <span>{appData.user_profile?.nickname || "ゲスト"}</span>
+                <span className="text-xs font-normal text-slate-400">さん</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1 transition"
+                title="分析レポート・バディ一覧"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <span>分析</span>
+              </button>
+              <button
+                onClick={() => setShowSettingsModal(true)}
+                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                title="設定"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              </button>
+            </div>
+          </header>
+
+          {/* バディステータス & 親愛度バー */}
+          <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{currentBuddy.emoji}</span>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-800">{currentBuddy.name}</span>
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white"
+                    style={{ backgroundColor: currentBuddy.themeColor }}
+                  >
+                    Lv.{currentBuddyLevel}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400">{currentBuddy.role}</div>
+              </div>
+            </div>
+
+            {/* EXPバー */}
+            <div className="w-32">
+              <div className="flex justify-between text-[10px] text-slate-500 mb-0.5 font-medium">
+                <span>親愛度</span>
+                <span>{currentBuddyExp} / {getNextExpTarget(currentBuddyLevel)} EXP</span>
+              </div>
+              <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    backgroundColor: currentBuddy.themeColor,
+                    width: `${Math.min(100, Math.round((currentBuddyExp / getNextExpTarget(currentBuddyLevel)) * 100))}%`
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* バディ表示 & 吹き出し (タップインタラクション) */}
+          <div
+            onClick={handleBuddyTap}
+            className="px-4 pt-4 pb-3 flex flex-col items-center cursor-pointer select-none bg-gradient-to-b from-white to-slate-50 relative group transition active:scale-[0.99]"
+          >
+            {/* 吹き出し */}
+            <div className="relative mb-3 w-full max-w-xs bg-white rounded-2xl p-3 border border-slate-200 shadow-sm text-center">
+              <div className="text-xs text-slate-700 font-medium leading-relaxed">
+                {buddySpeech || "今日も一緒にがんばりましょう！"}
+              </div>
+              {/* 吹き出しの三角ヒゲ */}
+              <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-white"></div>
+            </div>
+
+            {/* キャラクター描画 */}
+            <div className="relative">
+              <BuddyAvatar
+                buddy={currentBuddy}
+                emotion={currentEmotion}
+                level={currentBuddyLevel}
+                size={140}
+              />
+              <div className="absolute -bottom-1 right-0 text-[10px] bg-slate-800/70 text-white px-2 py-0.5 rounded-full opacity-70 group-hover:opacity-100">
+                タップして会話 💬
+              </div>
+            </div>
+          </div>
+
+          {/* 今日の体重クイック入力エリア */}
+          <div className="px-4 py-2.5 bg-slate-100/70 border-y border-slate-200/60">
+            <form onSubmit={handleSaveQuickWeight} className="flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap">
+                <span>⚖️ 本日の体重:</span>
+                <span className="text-slate-900 font-extrabold text-sm">{latestWeight > 0 ? `${latestWeight} kg` : "未記録"}</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-1 max-w-[170px]">
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder={latestWeight > 0 ? String(latestWeight) : "例: 65.2"}
+                  value={quickWeightInput}
+                  onChange={(e) => setQuickWeightInput(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="bg-slate-800 hover:bg-slate-900 text-white font-bold px-3 py-1 rounded text-xs transition whitespace-nowrap"
+                >
+                  記録
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* ダッシュボード中央: カロリーメーター & PFC */}
+          <div className="px-4 py-4 space-y-4">
+            {/* カロリー進捗カード */}
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold text-slate-400">1日の目標摂取カロリー</div>
+                <div className="text-2xl font-black text-slate-800 mt-0.5">
+                  {todayTotals.calories}
+                  <span className="text-xs font-bold text-slate-400 ml-1">/ {appData.user_profile.target_calories} kcal</span>
+                </div>
+                <div className="mt-1 text-xs font-bold">
+                  {remainingCalories >= 0 ? (
+                    <span className="text-emerald-600">あと {remainingCalories} kcal 食べられます</span>
+                  ) : (
+                    <span className="text-rose-500">⚠️ {Math.abs(remainingCalories)} kcal オーバーです</span>
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  基礎代謝(BMR): {appData.user_profile.bmr} kcal
+                </div>
+              </div>
+
+              {/* 円形プログレスメーター */}
+              <div className="relative w-20 h-20 flex items-center justify-center">
+                <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 36 36">
+                  <path
+                    className="text-slate-100"
+                    strokeWidth="3.5"
+                    stroke="currentColor"
+                    fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                  <path
+                    className={`${remainingCalories < 0 ? 'text-rose-500' : 'text-blue-500'} transition-all duration-500`}
+                    strokeDasharray={`${caloriePercent}, 100`}
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                </svg>
+                <div className="absolute text-center">
+                  <span className="text-xs font-black text-slate-800">{caloriePercent}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* PFCバランスバー */}
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-xs font-bold text-slate-700 mb-3 flex items-center justify-between">
+                <span>PFCバランス達成度</span>
+                <span className="text-[10px] font-normal text-slate-400">厚労省基準比率</span>
+              </div>
+
+              <div className="space-y-2.5">
+                {/* タンパク質 (P) */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-bold text-slate-700">P たんぱく質</span>
+                    <span className="text-slate-500 text-[11px] font-medium">
+                      {Math.round(todayTotals.protein)}g / 目標 {idealPFC.protein}g
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, Math.round((todayTotals.protein / (idealPFC.protein || 1)) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 脂質 (F) */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-bold text-slate-700">F 脂質</span>
+                    <span className="text-slate-500 text-[11px] font-medium">
+                      {Math.round(todayTotals.fat)}g / 目標 {idealPFC.fat}g
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-amber-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, Math.round((todayTotals.fat / (idealPFC.fat || 1)) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 炭水化物 (C) */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-bold text-slate-700">C 炭水化物</span>
+                    <span className="text-slate-500 text-[11px] font-medium">
+                      {Math.round(todayTotals.carbs)}g / 目標 {idealPFC.carbs}g
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-sky-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, Math.round((todayTotals.carbs / (idealPFC.carbs || 1)) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 本日の食事一覧 */}
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-xs font-bold text-slate-700 mb-2.5 flex items-center justify-between">
+                <span>本日の食事記録</span>
+                <span className="text-[10px] text-slate-400 font-semibold">{todayMeals.length} 件</span>
+              </div>
+
+              {todayMeals.length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-xs">
+                  まだ本日の食事が記録されていません。<br />下のボタンから写真または手動で記録しましょう！
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {todayMeals.map((meal) => (
+                    <div key={meal.id} className="py-2.5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 overflow-hidden">
+                        {meal.image ? (
+                          <img src={meal.image} alt={meal.name} className="w-10 h-10 object-cover rounded-lg flex-shrink-0 border border-slate-100" />
+                        ) : (
+                          <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-sm flex-shrink-0">
+                            🍽️
+                          </div>
+                        )}
+                        <div className="truncate">
+                          <div className="text-xs font-bold text-slate-800 truncate">{meal.name}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {meal.time} • P:{Math.round(meal.protein)}g F:{Math.round(meal.fat)}g C:{Math.round(meal.carbs)}g
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs font-extrabold text-slate-800">{meal.calories} <span className="text-[10px] font-normal text-slate-400">kcal</span></span>
+                        <button
+                          onClick={() => handleDeleteMeal(meal.id)}
+                          className="text-slate-300 hover:text-rose-500 p-1 transition"
+                          title="削除"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 下部固定アクションバー */}
+          <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 flex gap-3 z-30 shadow-lg">
+            {/* 写真で記録ボタン */}
+            <button
+              onClick={() => {
+                setMealModalMode("camera");
+                setImagePreview(null);
+                setImageBase64("");
+                setAnalysisResultRaw(null);
+                setMealForm({ name: "", calories: "", protein: "", fat: "", carbs: "", salt_equivalent: "", fiber: "" });
+                setShowMealModal(true);
+              }}
+              className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md active:scale-98 transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              <span>📷 写真で記録</span>
+            </button>
+
+            {/* 手動で記録ボタン */}
+            <button
+              onClick={() => {
+                setMealModalMode("manual");
+                setImagePreview(null);
+                setImageBase64("");
+                setAnalysisResultRaw(null);
+                setMealForm({ name: "", calories: "", protein: "", fat: "", carbs: "", salt_equivalent: "", fiber: "" });
+                setShowMealModal(true);
+              }}
+              className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md active:scale-98 transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+              <span>✏️ 手動で記録</span>
+            </button>
+          </div>
+
+          {/* --- モーダル1: 食事記録モーダル（写真解析 & 手動入力共用） --- */}
+          {showMealModal && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-200">
+                {/* モーダルヘッダー */}
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-800">
+                      {mealModalMode === "camera" ? "📷 写真で食事解析・記録" : "✏️ 手動で食事記録"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowMealModal(false)}
+                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                  </button>
+                </div>
+
+                {/* モーダルコンテンツ (スクロール可能) */}
+                <div className="p-4 overflow-y-auto space-y-4">
+                  {/* モード切り替えタブ */}
+                  <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setMealModalMode("camera")}
+                      className={`flex-1 py-1.5 rounded-lg transition ${mealModalMode === "camera" ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                    >
+                      写真からAI推定
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMealModalMode("manual")}
+                      className={`flex-1 py-1.5 rounded-lg transition ${mealModalMode === "manual" ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                    >
+                      手動入力
+                    </button>
+                  </div>
+
+                  {/* 写真モードのファイル選択・プレビュー */}
+                  {mealModalMode === "camera" && (
+                    <div className="space-y-3">
+                      {!imagePreview ? (
+                        <label className="border-2 border-dashed border-slate-300 rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition">
+                          <svg className="w-10 h-10 text-slate-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                          <span className="text-xs font-bold text-slate-600">タップして写真を撮影または選択</span>
+                          <span className="text-[10px] text-slate-400 mt-0.5">長辺800pxに自動最適化されます</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                handleImageSelect(e.target.files[0]);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      ) : (
+                        <div className="relative rounded-2xl overflow-hidden border border-slate-200">
+                          <img src={imagePreview} alt="食事プレビュー" className="w-full h-44 object-cover" />
+                          <label className="absolute bottom-2 right-2 bg-black/70 hover:bg-black/80 text-white text-[10px] font-bold px-2.5 py-1 rounded-full cursor-pointer">
+                            撮り直す
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleImageSelect(e.target.files[0]);
+                                }
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      )}
+
+                      {/* AI解析中インジケータ */}
+                      {isAnalyzing && (
+                        <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-blue-700 animate-pulse">
+                          <svg className="animate-spin h-4 w-4 text-blue-600" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                          <span>Gemini Flash が食事を画像解析中...</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 食事入力・修正フォーム */}
+                  <form onSubmit={handleConfirmMeal} className="space-y-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">料理名・メニュー</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="例: 鶏むね肉のサラダチキン定食"
+                        value={mealForm.name}
+                        onChange={(e) => setMealForm({ ...mealForm, name: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">カロリー (kcal) *必須</label>
+                        <input
+                          type="number"
+                          required
+                          step="1"
+                          placeholder="例: 580"
+                          value={mealForm.calories}
+                          onChange={(e) => setMealForm({ ...mealForm, calories: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">たんぱく質 (g)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="例: 24.5"
+                          value={mealForm.protein}
+                          onChange={(e) => setMealForm({ ...mealForm, protein: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">脂質 (g)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="例: 14.0"
+                          value={mealForm.fat}
+                          onChange={(e) => setMealForm({ ...mealForm, fat: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">炭水化物 (g)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="例: 65.0"
+                          value={mealForm.carbs}
+                          onChange={(e) => setMealForm({ ...mealForm, carbs: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="submit"
+                        disabled={isAnalyzing}
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-1 shadow-md transition"
+                      >
+                        <span>この内容で記録確定 (+10 EXP)</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- モーダル2: プロファイル設定モーダル（初期オンボーディング兼用） --- */}
+          {showSettingsModal && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white w-full max-w-md rounded-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">
+                      {!isConfigured ? "🎉 初回プロファイル設定" : "⚙️ プロファイル & 設定"}
+                    </h3>
+                    {!isConfigured && (
+                      <p className="text-[10px] text-rose-500 font-semibold">
+                        アプリを利用開始するために初期設定を入力してください。
+                      </p>
+                    )}
+                  </div>
+                  {isConfigured && (
+                    <button
+                      onClick={() => setShowSettingsModal(false)}
+                      className="p-1 rounded-full text-slate-400 hover:text-slate-600"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="p-4 overflow-y-auto space-y-4">
+                  <ProfileSettingsForm
+                    initialProfile={appData.user_profile}
+                    initialApiKey={appData.api_key}
+                    onSave={(updatedProfile, updatedApiKey) => {
+                      const updated = {
+                        ...appData,
+                        api_key: updatedApiKey,
+                        user_profile: updatedProfile
+                      };
+                      saveState(updated);
+                      setShowSettingsModal(false);
+                      showToast("プロファイルを更新しました！");
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- モーダル3: 週次/月次分析レポート & バディ交代モーダル --- */}
+          {showReportModal && (
+            <ReportModal
+              appData={appData}
+              onClose={() => setShowReportModal(false)}
+              onSwitchBuddy={(newBuddyId) => {
+                const updated = {
+                  ...appData,
+                  user_profile: {
+                    ...appData.user_profile,
+                    selected_buddy: newBuddyId
+                  }
+                };
+                saveState(updated);
+                showToast(`バディを「${BUDDY_DEFINITIONS[newBuddyId].name}」に交代しました！`);
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // --- プロファイル設定フォーム内部コンポーネント ---
+    function ProfileSettingsForm({ initialProfile, initialApiKey, onSave }) {
+      const [apiKey, setApiKey] = useState(initialApiKey || "");
+      const [nickname, setNickname] = useState(initialProfile?.nickname || "");
+      const [gender, setGender] = useState(initialProfile?.gender || "male");
+      const [age, setAge] = useState(initialProfile?.age || 30);
+      const [height, setHeight] = useState(initialProfile?.height || 170.0);
+      const [currentWeight, setCurrentWeight] = useState(initialProfile?.current_weight || 65.0);
+      const [targetWeight, setTargetWeight] = useState(initialProfile?.target_weight || 60.0);
+      const [activityLevel, setActivityLevel] = useState(initialProfile?.activity_level || 2);
+      const [selectedBuddy, setSelectedBuddy] = useState(initialProfile?.selected_buddy || "riko");
+
+      // リアルタイム計算プレビュー
+      const previewBMR = calculateBMR(gender, currentWeight, height, age);
+      const previewTargetCalories = calculateTargetCalories(previewBMR, activityLevel);
+      const previewPFC = calculateIdealPFC(previewTargetCalories);
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!apiKey.trim()) {
+          alert("Gemini APIキーを入力してください。");
+          return;
+        }
+        if (!nickname.trim()) {
+          alert("ニックネームを入力してください。");
+          return;
+        }
+
+        const bmr = calculateBMR(gender, currentWeight, height, age);
+        const targetCalories = calculateTargetCalories(bmr, activityLevel);
+
+        const updatedProfile = {
+          ...initialProfile,
+          nickname: nickname.trim(),
+          gender,
+          age: parseInt(age) || 30,
+          height: parseFloat(height) || 170.0,
+          current_weight: parseFloat(currentWeight) || 65.0,
+          target_weight: parseFloat(targetWeight) || 60.0,
+          activity_level: parseInt(activityLevel) || 2,
+          bmr,
+          target_calories: targetCalories,
+          selected_buddy: selectedBuddy
+        };
+
+        onSave(updatedProfile, apiKey.trim());
+      };
+
+      return (
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          {/* APIキー */}
+          <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
+            <label className="block font-bold text-amber-900 mb-1">
+              🔑 Gemini API キー *必須
+            </label>
+            <input
+              type="password"
+              required
+              placeholder="AIzaSy..."
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+            />
+            <p className="text-[10px] text-amber-700 mt-1">
+              Google AI Studioで取得したAPIキーを入力してください。端末のLocalStorageのみに安全に保存されます。
+            </p>
+          </div>
+
+          {/* ニックネーム */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">ニックネーム *必須</label>
+            <input
+              type="text"
+              required
+              placeholder="例: たかのり"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none focus:bg-white focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* 性別・年齢 */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">性別</label>
+              <select
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none"
+              >
+                <option value="male">男性</option>
+                <option value="female">女性</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">年齢</label>
+              <input
+                type="number"
+                min="10"
+                max="120"
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* 身長・現在体重・目標体重 */}
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">身長 (cm)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={height}
+                onChange={(e) => setHeight(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">現在体重 (kg)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={currentWeight}
+                onChange={(e) => setCurrentWeight(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">目標体重 (kg)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={targetWeight}
+                onChange={(e) => setTargetWeight(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* 活動レベル */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">日常の活動レベル</label>
+            <select
+              value={activityLevel}
+              onChange={(e) => setActivityLevel(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none"
+            >
+              <option value="1">レベル1: 低 (デスクワーク中心・運動少なめ)</option>
+              <option value="2">レベル2: 普通 (立ち仕事や通勤での歩行あり)</option>
+              <option value="3">レベル3: 高 (日常的な運動習慣や肉体労働)</option>
+            </select>
+          </div>
+
+          {/* 自動計算プレビュー表示 */}
+          <div className="p-3 bg-slate-100 rounded-xl text-slate-700">
+            <div className="font-bold text-slate-800 mb-1">自動算出された目標指標 (目安)</div>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div>基礎代謝量 (BMR): <span className="font-extrabold text-blue-600">{previewBMR} kcal</span></div>
+              <div>目標摂取カロリー: <span className="font-extrabold text-blue-600">{previewTargetCalories} kcal</span></div>
+            </div>
+            <div className="mt-1 text-[10px] text-slate-500">
+              PFC目安: P {previewPFC.protein}g / F {previewPFC.fat}g / C {previewPFC.carbs}g
+            </div>
+          </div>
+
+          {/* 初期バディ選択 */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-2">専属バディを選択</label>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.values(BUDDY_DEFINITIONS).map((buddy) => (
+                <div
+                  key={buddy.id}
+                  onClick={() => setSelectedBuddy(buddy.id)}
+                  className={`p-2 rounded-xl border-2 cursor-pointer flex items-center gap-2 transition ${
+                    selectedBuddy === buddy.id
+                      ? 'border-blue-600 bg-blue-50/50'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <span className="text-xl">{buddy.emoji}</span>
+                  <div className="overflow-hidden">
+                    <div className="font-bold text-slate-800 text-xs truncate">{buddy.name}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{buddy.role}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md"
+          >
+            設定を保存してはじめる
+          </button>
+        </form>
+      );
+    }
+
+    // --- 分析レポート & バディ交代モーダルコンポーネント (Chart.js統合) ---
+    function ReportModal({ appData, onClose, onSwitchBuddy }) {
+      const chartRef = useRef(null);
+      const chartInstanceRef = useRef(null);
+
+      const weightHistory = useMemo(() => {
+        return (appData.weight_history || []).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+      }, [appData.weight_history]);
+
+      // Chart.js の React 統合 & クリーンアップ
+      useEffect(() => {
+        if (!chartRef.current) return;
+        const ctx = chartRef.current.getContext('2d');
+
+        // データ0件でも破綻しない防御
+        const labels = weightHistory.length > 0
+          ? weightHistory.map(w => w.date.replace(/^\d{4}-/, ''))
+          : ['今日'];
+        const dataValues = weightHistory.length > 0
+          ? weightHistory.map(w => w.weight)
+          : [appData.user_profile?.current_weight || 0];
+
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.destroy();
+        }
+
+        chartInstanceRef.current = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: '体重 (kg)',
+              data: dataValues,
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37, 99, 235, 0.1)',
+              borderWidth: 2,
+              tension: 0.2,
+              fill: true,
+              pointRadius: 4,
+              pointBackgroundColor: '#2563eb'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              y: {
+                beginAtZero: false,
+                ticks: {
+                  font: { size: 10 }
+                }
+              },
+              x: {
+                ticks: {
+                  font: { size: 10 }
+                }
+              }
+            }
+          }
+        });
+
+        return () => {
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+          }
+        };
+      }, [weightHistory, appData.user_profile]);
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* モーダルヘッダー */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-800">📊 分析レポート & バディ交代</span>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-5">
+              {/* 体重推移グラフ */}
+              <div>
+                <div className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                  <span>体重推移グラフ</span>
+                  <span className="text-[10px] text-slate-400 font-semibold">{weightHistory.length} 回の記録</span>
+                </div>
+                <div className="w-full h-44 bg-slate-50 p-2 rounded-xl border border-slate-200 relative">
+                  <canvas ref={chartRef}></canvas>
+                </div>
+                {weightHistory.length === 0 && (
+                  <div className="text-center text-[10px] text-slate-400 mt-1">
+                    ※体重履歴が0件のため、初期設定体重を表示しています。
+                  </div>
+                )}
+              </div>
+
+              {/* バディ切り替えグリッド */}
+              <div>
+                <div className="text-xs font-bold text-slate-700 mb-2">バディ交代（全6名）</div>
+                <div className="space-y-2">
+                  {Object.values(BUDDY_DEFINITIONS).map((buddy) => {
+                    const prog = appData.buddy_progress?.[buddy.id] || { exp: 0, level: 1 };
+                    const isSelected = appData.user_profile?.selected_buddy === buddy.id;
+
+                    return (
+                      <div
+                        key={buddy.id}
+                        className={`p-3 rounded-xl border transition flex items-center justify-between ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50/40 shadow-sm'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-2xl">{buddy.emoji}</span>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-slate-800">{buddy.name}</span>
+                              <span
+                                className="text-[9px] font-bold px-1.5 py-0.2 rounded text-white"
+                                style={{ backgroundColor: buddy.themeColor }}
+                              >
+                                Lv.{prog.level}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">{buddy.role} • 累計 {prog.exp} EXP</div>
+                          </div>
+                        </div>
+
+                        <div>
+                          {isSelected ? (
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-md">
+                              同行中
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => onSwitchBuddy(buddy.id)}
+                              className="text-[10px] font-bold bg-slate-800 hover:bg-slate-900 text-white px-3 py-1 rounded-md transition"
+                            >
+                              交代する
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- エントリーポイント & マウント ---
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
